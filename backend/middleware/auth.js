@@ -1,35 +1,40 @@
-const jwt = require('jsonwebtoken');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
 /**
- * Middleware to verify JWT tokens on protected routes.
- * Checks the Authorization: Bearer <token> header.
+ * Express Middleware that validates Supabase Session Access Tokens
  */
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ error: 'Access denied. No token provided.' });
+    return res.status(401).json({ error: 'Access denied. Missing session token.' });
   }
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch {
-    return res.status(403).json({ error: 'Invalid or expired token.' });
+  // Use the official client to safely pull user parameters from Supabase's identity engine
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+
+  if (error || !user) {
+    return res.status(403).json({ error: 'Invalid or expired authentication session.' });
   }
+
+  // Inject user profile details into the request state
+  req.user = {
+    id: user.id,
+    email: user.email,
+    role: user.user_metadata?.role || 'user' // Default safe authorization scope
+  };
+  
+  next();
 }
 
-/**
- * Role-based access guard. Use after authenticateToken.
- * e.g. requireRole('admin'), requireRole('merchant')
- */
 function requireRole(role) {
   return (req, res, next) => {
     if (!req.user || req.user.role !== role) {
-      return res.status(403).json({ error: `Access restricted to ${role} accounts.` });
+      return res.status(403).json({ error: `Access restricted. Requires role: ${role}` });
     }
     next();
   };

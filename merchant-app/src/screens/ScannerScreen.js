@@ -1,30 +1,37 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  View, Text, StyleSheet, TouchableOpacity, Animated, Vibration
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Vibration } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { redeemVoucher } from '../api/api';
 
 export default function ScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning]         = useState(true);
-  const [result, setResult]             = useState(null); // null | 'success' | 'error'
+  const [result, setResult]             = useState(null); 
   const [message, setMessage]           = useState('');
   const [amount, setAmount]             = useState('');
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  // Create persistent ref token to block overlapping timeout mutations
+  const timeoutRef = useRef(null);
 
   useEffect(() => {
     if (!permission?.granted) requestPermission();
-  }, []);
+    
+    // Clear timeout loop upon component unmount safety step
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+  }, [permission]);
 
   const showResult = (type, msg, amt = '') => {
     setResult(type);
     setMessage(msg);
     setAmount(amt);
     Vibration.vibrate(type === 'success' ? [0, 100, 100, 100] : 400);
+    
     Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
-    // Auto-reset after 3 seconds
-    setTimeout(() => {
+
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+    timeoutRef.current = setTimeout(() => {
       Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
         setScanning(true);
         setResult(null);
@@ -34,10 +41,10 @@ export default function ScannerScreen() {
 
   const handleScan = async ({ data }) => {
     if (!scanning || !data) return;
-    setScanning(false); // Prevent duplicate scans
+    setScanning(false); 
 
     try {
-      const res = await redeemVoucher(data);
+      const res = await redeemVoucher({ qr_payload: data });
       showResult('success', res.data.message, `$${parseFloat(res.data.amount).toFixed(2)}`);
     } catch (err) {
       const errMsg = err.response?.data?.error || 'Scan failed. Please try again.';
@@ -66,7 +73,6 @@ export default function ScannerScreen() {
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
       />
 
-      {/* Overlay with scan frame */}
       <View style={styles.overlay}>
         <Text style={styles.overlayTitle}>Scan Fidyah Voucher</Text>
         <View style={styles.scanFrame}>
@@ -78,7 +84,6 @@ export default function ScannerScreen() {
         <Text style={styles.overlayHint}>Point camera at customer's QR code or physical voucher</Text>
       </View>
 
-      {/* Result overlay */}
       {result && (
         <Animated.View style={[styles.resultOverlay, { opacity: fadeAnim }, result === 'success' ? styles.success : styles.error]}>
           <Text style={styles.resultIcon}>{result === 'success' ? '✓' : '✗'}</Text>

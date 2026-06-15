@@ -7,15 +7,17 @@ import QRCode from 'react-native-qrcode-svg';
 import { getMyVouchers } from '../api/api';
 
 export default function WalletScreen() {
-  const [vouchers, setVouchers]   = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [vouchers, setVouchers]     = useState([]);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selected, setSelected]   = useState(null);
+  const [selected, setSelected]     = useState(null);
 
   const fetchVouchers = useCallback(async () => {
     try {
       const res = await getMyVouchers();
-      setVouchers(res.data.vouchers);
+      // Drop voided vouchers entirely from the device state for an accurate wallet count
+      const validVouchers = (res.data.vouchers || []).filter(v => !v.is_voided);
+      setVouchers(validVouchers);
     } catch (err) {
       Alert.alert('Error', 'Failed to load vouchers. Please check your connection.');
     } finally {
@@ -28,7 +30,7 @@ export default function WalletScreen() {
 
   const onRefresh = () => { setRefreshing(true); fetchVouchers(); };
 
-  const activeVouchers   = vouchers.filter(v => !v.is_redeemed && !v.is_voided);
+  const activeVouchers   = vouchers.filter(v => !v.is_redeemed);
   const redeemedVouchers = vouchers.filter(v => v.is_redeemed);
 
   const renderVoucher = ({ item }) => (
@@ -68,25 +70,27 @@ export default function WalletScreen() {
         contentContainerStyle={{ paddingBottom: 24 }}
       />
 
-      {/* QR Code Modal */}
       <Modal visible={!!selected} animationType="slide" transparent onRequestClose={() => setSelected(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Show this to the merchant</Text>
-            <Text style={styles.modalAmount}>${selected && parseFloat(selected.amount).toFixed(2)}</Text>
-            {selected && (
+            <Text style={styles.modalAmount}>${selected ? parseFloat(selected.amount).toFixed(2) : '0.00'}</Text>
+            
+            <View style={styles.qrWrapper}>
               <QRCode
-                value={selected.signed_payload}
+                // Provide empty string fallback if selected object transitions out mid-fade animation
+                value={selected ? selected.signed_payload : 'EMPTY'}
                 size={220}
                 color="#1a1a2e"
                 backgroundColor="#fff"
               />
-            )}
+            </View>
+            
             <Text style={styles.modalNote}>Do not screenshot. Show your phone screen directly to the merchant.</Text>
             <TouchableOpacity style={styles.closeButton} onPress={() => setSelected(null)}>
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
-          </View>
+          </div>
         </View>
       </Modal>
     </View>
@@ -115,6 +119,7 @@ const styles = StyleSheet.create({
   modalCard:       { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 32, alignItems: 'center' },
   modalTitle:      { fontSize: 16, color: '#888', marginBottom: 4 },
   modalAmount:     { fontSize: 36, fontWeight: '700', color: '#016a6e', marginBottom: 24 },
+  qrWrapper:       { minHeight: 220, justifyContent: 'center', alignItems: 'center' },
   modalNote:       { fontSize: 12, color: '#aaa', textAlign: 'center', marginTop: 20, maxWidth: 260 },
   closeButton:     { marginTop: 20, backgroundColor: '#016a6e', borderRadius: 10, paddingHorizontal: 40, paddingVertical: 14 },
   closeButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
